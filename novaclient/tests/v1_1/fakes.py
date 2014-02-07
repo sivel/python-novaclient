@@ -16,6 +16,7 @@
 
 from datetime import datetime
 
+import re
 import six
 
 from novaclient import client as base_client
@@ -241,14 +242,41 @@ class FakeHTTPClient(base_client.HTTPClient):
     # Servers
     #
 
+    def search_opts_filter(self, items, **kw):
+        found = []
+        exact_match_attrs = ['image', 'flavor', 'status']
+        regex_match_attrs = ['name']
+        searches = [(k, v) for k, v in kw.iteritems() if
+                    k in exact_match_attrs + regex_match_attrs]
+        if not searches:
+            return items
+        for item in items:
+            matched = []
+            for attr, value in searches:
+                if (attr in regex_match_attrs and
+                        re.search(value, item.get(attr), flags=re.I)):
+                    matched.append(True)
+                elif attr in exact_match_attrs and item.get(attr) == value:
+                    matched.append(True)
+                else:
+                    matched.append(False)
+
+                if matched and False not in matched:
+                    found.append(item)
+
+        return found
+
     def get_servers(self, **kw):
-        return (200, {}, {"servers": [
+        servers = [
             {'id': 1234, 'name': 'sample-server'},
             {'id': 5678, 'name': 'sample-server2'}
-        ]})
+        ]
+        if kw:
+            servers = self.search_opts_filter(servers, **kw)
+        return (200, {}, {"servers": servers})
 
     def get_servers_detail(self, **kw):
-        return (200, {}, {"servers": [
+        servers = [
             {
                 "id": 1234,
                 "name": "sample-server",
@@ -359,7 +387,10 @@ class FakeHTTPClient(base_client.HTTPClient):
                     "Server Label": "DB 1"
                 }
             }
-        ]})
+        ]
+        if kw:
+            servers = self.search_opts_filter(servers, **kw)
+        return (200, {}, {"servers": servers})
 
     def post_servers(self, body, **kw):
         assert set(body.keys()) <= set(['server', 'os:scheduler_hints'])
